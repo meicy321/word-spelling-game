@@ -397,7 +397,37 @@ h1 {
 }
 .score-ring .snum { font-size: 3.2em; font-weight: 800; line-height: 1; }
 .score-ring .slbl { font-size: 0.9em; margin-top: 2px; }
-#end-msg { text-align: center; font-size: 1.2em; color: #555; margin-bottom: 4px; }
+#end-msg { text-align: center; font-size: 1.2em; color: #555; margin-bottom: 16px; }
+
+/* Word breakdown */
+#word-breakdown { margin-bottom: 16px; }
+.bd-section { margin-bottom: 14px; }
+.bd-title {
+  font-size: 0.88em;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bd-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.bd-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 13px;
+  border-radius: 50px;
+  font-size: 0.92em;
+  font-weight: 700;
+  border: 2px solid;
+}
+.bd-chip .ch-emoji { font-size: 1.1em; }
+.bd-chip .ch-word  { letter-spacing: 1px; }
+.chip-mastered { background: #e8f5e9; color: #2e7d32; border-color: #66bb6a; }
+.chip-passed   { background: #fff8e1; color: #e65100; border-color: #ffa726; }
+.chip-failed   { background: #ffebee; color: #c62828; border-color: #ef5350; }
 
 .restart-btn {
   width: 100%;
@@ -542,6 +572,7 @@ h1 {
       <span class="slbl">correct!</span>
     </div>
     <p id="end-msg"></p>
+    <div id="word-breakdown"></div>
     <button class="restart-btn" onclick="tryAgain()">🔄 Try Again</button>
     <button class="newgame-btn" onclick="startNewGame()">✏️ Start New Game</button>
   </div>
@@ -646,8 +677,10 @@ let score = 0;
 let round = 1;
 const MAX_ROUNDS   = 2;
 const MAX_ATTEMPTS = 3;
-let currentAttempts = 0;   // wrong attempts for current word
-let wrongWordsThisRound = []; // words failed this round → replayed next round
+let currentAttempts = 0;        // wrong attempts for current word
+let wrongWordsThisRound = [];   // words failed this round → replayed next round
+// Per-word outcome: 'mastered' | 'passed' | 'failed' | 'shown'(transient)
+let wordResults = {};
 
 let boxes = [];   // [{el, letter, tileIdx}]
 let tiles = [];   // [{letter, el, used}]
@@ -759,6 +792,7 @@ function startGame() {
   round = 1;
   currentAttempts = 0;
   wrongWordsThisRound = [];
+  wordResults = {};
   showScreen('game-screen');
   loadWord();
 }
@@ -919,6 +953,7 @@ function checkAnswer() {
 
   if (answer === target) {
     boxes.forEach(b => b.el.classList.add('correct'));
+    wordResults[target] = round === 1 ? 'mastered' : 'passed';
     score++;
     showCorrectOverlay();
   } else {
@@ -942,10 +977,12 @@ function checkAnswer() {
 function showRevealOverlay() {
   const { emoji, word } = gameWords[currentIdx];
   document.getElementById('rv-emoji').textContent = emoji;
-  document.getElementById('rv-word').textContent  = word.toUpperCase();
-  // Mark word for retry next round (only if we haven't hit max rounds)
+  document.getElementById('rv-word').textContent  = applyCase(word);
   if (round < MAX_ROUNDS) {
+    wordResults[word] = 'shown';          // transient — will become 'passed' or 'failed'
     wrongWordsThisRound.push(gameWords[currentIdx]);
+  } else {
+    wordResults[word] = 'failed';         // no more chances
   }
   const msg = document.getElementById('reveal-msg');
   msg.classList.add('show');
@@ -1182,27 +1219,62 @@ function speakResult(text) {
   synth.speak(utt);
 }
 
+function renderWordBreakdown() {
+  const mastered = wordList.filter(w => wordResults[w.word] === 'mastered');
+  const passed   = wordList.filter(w => wordResults[w.word] === 'passed');
+  const failed   = wordList.filter(w => wordResults[w.word] === 'failed' || !wordResults[w.word]);
+
+  const wrap = document.getElementById('word-breakdown');
+  wrap.innerHTML = '';
+
+  function makeSection(title, colorClass, words) {
+    if (!words.length) return;
+    const sec = document.createElement('div');
+    sec.className = 'bd-section';
+    sec.innerHTML = `<div class="bd-title">${title}</div>`;
+    const chips = document.createElement('div');
+    chips.className = 'bd-chips';
+    words.forEach(w => {
+      const chip = document.createElement('div');
+      chip.className = `bd-chip ${colorClass}`;
+      chip.innerHTML = `<span class="ch-emoji">${w.emoji}</span><span class="ch-word">${applyCase(w.word)}</span>`;
+      chips.appendChild(chip);
+    });
+    sec.appendChild(chips);
+    wrap.appendChild(sec);
+  }
+
+  makeSection('⭐ Mastered!',            'chip-mastered', mastered);
+  makeSection('💪 Got it with help!',    'chip-passed',   passed);
+  makeSection('📖 Keep practising!',     'chip-failed',   failed);
+}
+
 function showEndScreen() {
-  const total = gameWords.length;
-  document.getElementById('final-score').textContent = `${score}/${total}`;
-  const pct = score / total;
+  const total   = wordList.length;               // always the original word count
+  const mastered = wordList.filter(w => wordResults[w.word] === 'mastered').length;
+  const passed   = wordList.filter(w => wordResults[w.word] === 'passed').length;
+  const correct  = mastered + passed;
+
+  document.getElementById('final-score').textContent = `${correct}/${total}`;
+
+  const pct = correct / total;
   const msgs = [
-    [1.0,  '🌟 Perfect score! You are a spelling superstar!'],
-    [0.8,  '🎉 Amazing job! Almost flawless!'],
-    [0.6,  '👍 Great effort! Keep practising!'],
-    [0.4,  '😊 Good try! You\'re getting there!'],
-    [0,    '💪 Keep going! Practice makes perfect!'],
+    [1.0, '🌟 Perfect! You are a spelling superstar!'],
+    [0.8, '🎉 Amazing job! Almost flawless!'],
+    [0.6, '👍 Great effort! Keep practising!'],
+    [0.4, '😊 Good try! You\'re getting there!'],
+    [0,   '💪 Keep going! Practice makes perfect!'],
   ];
   document.getElementById('end-msg').textContent = msgs.find(([t]) => pct >= t)[1];
+
+  renderWordBreakdown();
   showScreen('end-screen');
 
-  if (score === total) {
-    // Perfect score → celebration then show buttons
+  if (correct === total) {
     launchConfetti();
     playApplause();
     setTimeout(() => speakResult('Amazing! You got them all! Well done!'), 800);
   }
-  // No celebration if not perfect — buttons are always visible
 }
 
 // Same word list, restart game
@@ -1213,6 +1285,7 @@ function tryAgain() {
   round = 1;
   currentAttempts = 0;
   wrongWordsThisRound = [];
+  wordResults = {};
   showScreen('game-screen');
   loadWord();
 }
