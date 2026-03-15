@@ -670,17 +670,15 @@ function getEmoji(word) {
 // ============================================================
 //  STATE
 // ============================================================
-let wordList  = [];         // [{word, emoji}]
-let gameWords = [];         // current round's word queue
-let currentIdx = 0;
-let score = 0;
-let round = 1;
-const MAX_ROUNDS   = 2;
+let wordList       = [];   // [{word, emoji}] — original input, never changes
+let gameQueue      = [];   // words being played this pass
+let retryQueue     = [];   // words failed in pass 1 → replayed in pass 2
+let currentIdx     = 0;
+let currentAttempts = 0;
+let isRetryRound   = false;
+// word → 'mastered' | 'passed' | 'failed'  (set only on resolution, never transient)
+let wordStatus     = {};
 const MAX_ATTEMPTS = 3;
-let currentAttempts = 0;        // wrong attempts for current word
-let wrongWordsThisRound = [];   // words failed this round → replayed next round
-// Per-word outcome: 'mastered' | 'passed' | 'failed' | 'shown'(transient)
-let wordResults = {};
 
 let boxes = [];   // [{el, letter, tileIdx}]
 let tiles = [];   // [{letter, el, used}]
@@ -786,13 +784,12 @@ function renderWordList() {
 }
 
 function startGame() {
-  gameWords = [...wordList].sort(() => Math.random() - 0.5);
-  currentIdx = 0;
-  score = 0;
-  round = 1;
+  gameQueue      = shuffle([...wordList]);
+  retryQueue     = [];
+  currentIdx     = 0;
   currentAttempts = 0;
-  wrongWordsThisRound = [];
-  wordResults = {};
+  isRetryRound   = false;
+  wordStatus     = {};
   showScreen('game-screen');
   loadWord();
 }
@@ -802,18 +799,18 @@ function startGame() {
 // ============================================================
 function loadWord() {
   selectedTileIdx = null;
-  const { word, emoji } = gameWords[currentIdx];
+  const { word, emoji } = gameQueue[currentIdx];
 
   // Progress
-  const total   = gameWords.length;
+  const total   = gameQueue.length;
   const current = currentIdx + 1;
   document.getElementById('progress-label').textContent = `Word ${current} / ${total}`;
   document.getElementById('progress-fill').style.width  = `${((current - 1) / total) * 100}%`;
 
-  // Round badge (only show on round 2+)
+  // Badge — second pass only
   const badgeWrap = document.getElementById('round-badge-wrap');
-  badgeWrap.innerHTML = round > 1
-    ? `<span class="round-badge">Round ${round} / ${MAX_ROUNDS}</span>`
+  badgeWrap.innerHTML = isRetryRound
+    ? `<span class="round-badge">🔁 Second Chance</span>`
     : '';
 
   // Reset attempt dots
@@ -838,7 +835,7 @@ function loadWord() {
     boxes.push({ el, letter: null, tileIdx: null });
   }
 
-  // Build tiles: 8 total if word < 5 letters, 10 total if >= 5 letters
+  // Tiles: 8 for short words (<5 letters), 10 for longer words
   const TOTAL_TILES = word.length < 5 ? 8 : 10;
   const wordLetters = word.split('').map((letter, i) => ({ letter, origIdx: i, used: false, el: null, isReal: true }));
   const alphabet = 'abcdefghijklmnopqrstuvwxyz';
@@ -949,12 +946,11 @@ function updateAttemptDots() {
 // ---- Check ----
 function checkAnswer() {
   const answer = boxes.map(b => b.letter).join('');
-  const target = gameWords[currentIdx].word;
+  const target = gameQueue[currentIdx].word;
 
   if (answer === target) {
     boxes.forEach(b => b.el.classList.add('correct'));
-    wordResults[target] = round === 1 ? 'mastered' : 'passed';
-    score++;
+    wordStatus[target] = isRetryRound ? 'passed' : 'mastered';
     showCorrectOverlay();
   } else {
     boxes.forEach(b => b.el.classList.add('wrong'));
@@ -962,11 +958,7 @@ function checkAnswer() {
     updateAttemptDots();
 
     if (currentAttempts >= MAX_ATTEMPTS) {
-      // 3 wrong attempts — reveal answer then move on
-      setTimeout(() => {
-        resetBoxes();
-        showRevealOverlay();
-      }, 650);
+      setTimeout(() => { resetBoxes(); showRevealOverlay(); }, 650);
     } else {
       setTimeout(resetBoxes, 650);
     }
@@ -975,37 +967,37 @@ function checkAnswer() {
 
 // ---- Reveal answer after 3 fails ----
 function showRevealOverlay() {
-  const { emoji, word } = gameWords[currentIdx];
+  const { emoji, word } = gameQueue[currentIdx];
   document.getElementById('rv-emoji').textContent = emoji;
   document.getElementById('rv-word').textContent  = applyCase(word);
-  if (round < MAX_ROUNDS) {
-    wordResults[word] = 'shown';          // transient — will become 'passed' or 'failed'
-    wrongWordsThisRound.push(gameWords[currentIdx]);
+
+  if (!isRetryRound) {
+    // Pass 1 fail: queue for a second chance — no status yet
+    retryQueue.push(gameQueue[currentIdx]);
   } else {
-    wordResults[word] = 'failed';         // no more chances
+    // Pass 2 fail: no more chances
+    wordStatus[word] = 'failed';
   }
+
   const msg = document.getElementById('reveal-msg');
   msg.classList.add('show');
-  setTimeout(() => {
-    msg.classList.remove('show');
-    advanceWord();
-  }, 2500);
+  setTimeout(() => { msg.classList.remove('show'); advanceWord(); }, 2500);
 }
 
-// ---- Advance to next word or next round or end ----
+// ---- Advance to next word, or start retry pass, or end ----
 function advanceWord() {
   currentIdx++;
-  if (currentIdx < gameWords.length) {
+  if (currentIdx < gameQueue.length) {
     loadWord();
     return;
   }
-  // End of current round
-  if (round < MAX_ROUNDS && wrongWordsThisRound.length > 0) {
-    // Start next round with only the words they got wrong
-    round++;
-    gameWords = [...wrongWordsThisRound].sort(() => Math.random() - 0.5);
-    wrongWordsThisRound = [];
-    currentIdx = 0;
+  // End of current pass
+  if (!isRetryRound && retryQueue.length > 0) {
+    // Switch to second-chance pass
+    isRetryRound  = true;
+    gameQueue     = shuffle([...retryQueue]);
+    retryQueue    = [];
+    currentIdx    = 0;
     currentAttempts = 0;
     loadWord();
   } else {
@@ -1028,9 +1020,9 @@ function resetBoxes() {
 
 // ---- Correct overlay ----
 function showCorrectOverlay() {
-  const { emoji, word } = gameWords[currentIdx];
+  const { emoji, word } = gameQueue[currentIdx];
   document.getElementById('om-emoji').textContent = emoji;
-  document.getElementById('om-word').textContent  = word.toUpperCase();
+  document.getElementById('om-word').textContent  = applyCase(word);
   const msg = document.getElementById('overlay-msg');
   msg.classList.add('show');
   launchConfetti();
@@ -1053,7 +1045,7 @@ function speakWord() {
   // Stop anything playing
   if (synth.speaking || synth.pending) synth.cancel();
 
-  const utt = new SpeechSynthesisUtterance(gameWords[currentIdx].word);
+  const utt = new SpeechSynthesisUtterance(gameQueue[currentIdx].word);
   utt.rate   = 0.75;
   utt.pitch  = 1.6;
   utt.volume = 1;
@@ -1220,9 +1212,11 @@ function speakResult(text) {
 }
 
 function renderWordBreakdown() {
-  const mastered = wordList.filter(w => wordResults[w.word] === 'mastered');
-  const passed   = wordList.filter(w => wordResults[w.word] === 'passed');
-  const failed   = wordList.filter(w => wordResults[w.word] === 'failed' || !wordResults[w.word]);
+  // Only words that fully resolved (no transient states possible now)
+  const mastered = wordList.filter(w => wordStatus[w.word] === 'mastered');
+  const passed   = wordList.filter(w => wordStatus[w.word] === 'passed');
+  const failed   = wordList.filter(w => wordStatus[w.word] === 'failed'
+                                     || wordStatus[w.word] == null);
 
   const wrap = document.getElementById('word-breakdown');
   wrap.innerHTML = '';
@@ -1244,16 +1238,16 @@ function renderWordBreakdown() {
     wrap.appendChild(sec);
   }
 
-  makeSection('⭐ Mastered!',            'chip-mastered', mastered);
-  makeSection('💪 Got it with help!',    'chip-passed',   passed);
-  makeSection('📖 Keep practising!',     'chip-failed',   failed);
+  makeSection('⭐ Mastered!',          'chip-mastered', mastered);
+  makeSection('💪 Got it with help!',  'chip-passed',   passed);
+  makeSection('📖 Keep practising!',   'chip-failed',   failed);
 }
 
 function showEndScreen() {
-  const total   = wordList.length;               // always the original word count
-  const mastered = wordList.filter(w => wordResults[w.word] === 'mastered').length;
-  const passed   = wordList.filter(w => wordResults[w.word] === 'passed').length;
-  const correct  = mastered + passed;
+  const total   = wordList.length;
+  const correct = wordList.filter(w =>
+    wordStatus[w.word] === 'mastered' || wordStatus[w.word] === 'passed'
+  ).length;
 
   document.getElementById('final-score').textContent = `${correct}/${total}`;
 
@@ -1277,17 +1271,9 @@ function showEndScreen() {
   }
 }
 
-// Same word list, restart game
+// Replay the same word list from scratch
 function tryAgain() {
-  gameWords = [...wordList].sort(() => Math.random() - 0.5);
-  currentIdx = 0;
-  score = 0;
-  round = 1;
-  currentAttempts = 0;
-  wrongWordsThisRound = [];
-  wordResults = {};
-  showScreen('game-screen');
-  loadWord();
+  startGame();   // startGame() uses wordList which never changes
 }
 
 // Go back to setup to enter new words
