@@ -212,10 +212,11 @@ h1 {
 }
 
 .emoji-clue {
-  text-align: center;
-  font-size: 5.5em;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   margin: 18px 0 10px;
-  line-height: 1;
+  min-height: 80px;
   animation: bounceIn 0.4s ease;
 }
 @keyframes bounceIn {
@@ -337,7 +338,7 @@ h1 {
   pointer-events: none;
 }
 .overlay-msg.show { transform: translate(-50%, -50%) scale(1); }
-.overlay-msg .om-emoji { font-size: 4.5em; display: block; margin-bottom: 6px; }
+.overlay-msg .om-emoji { display: flex; justify-content: center; align-items: center; width: 80px; height: 80px; margin: 0 auto 6px; }
 .overlay-msg h2 { font-size: 2em; color: #4caf50; margin-bottom: 6px; }
 .overlay-msg p  { font-size: 1.3em; color: #555; }
 
@@ -492,7 +493,7 @@ h1 {
   .start-btn { font-size: 1.2em; padding: 15px; }
 
   /* Game screen */
-  .emoji-clue { font-size: 4em; margin: 12px 0 8px; }
+  .emoji-clue { margin: 12px 0 8px; }
   .speak-btn { font-size: 0.95em; padding: 9px 20px; margin-bottom: 14px; }
   .letter-boxes { gap: 5px; margin-bottom: 18px; }
   .lbox { width: 44px; height: 52px; font-size: 1.4em; border-radius: 10px; }
@@ -500,7 +501,6 @@ h1 {
   .tile { width: 44px; height: 52px; font-size: 1.4em; border-radius: 10px; }
   .hint-text { font-size: 0.78em; }
   .overlay-msg { padding: 22px 24px; width: 90vw; }
-  .overlay-msg .om-emoji { font-size: 3.5em; }
   .overlay-msg h2 { font-size: 1.6em; }
 
   /* End screen */
@@ -513,7 +513,6 @@ h1 {
 @media (max-width: 360px) {
   .lbox { width: 38px; height: 46px; font-size: 1.2em; }
   .tile  { width: 38px; height: 46px; font-size: 1.2em; }
-  .emoji-clue { font-size: 3.2em; }
   h1 { font-size: 1.3em; }
 }
 </style>
@@ -665,6 +664,61 @@ const EMOJI = {
 
 function getEmoji(word) {
   return EMOJI[word.toLowerCase().trim()] || '❓';
+}
+
+// ============================================================
+//  EMOJI RENDERING — Twemoji → Wikipedia → Badge fallback
+// ============================================================
+function emojiToTwemojiCode(emoji) {
+  return [...emoji]
+    .map(c => c.codePointAt(0).toString(16))
+    .filter(cp => cp !== 'fe0f')   // strip variation selector-16
+    .join('-');
+}
+
+const BADGE_COLORS = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#ff922b','#cc5de8','#20c997','#f06595'];
+
+function makeBadge(word) {
+  const d = document.createElement('div');
+  const idx = [...word].reduce((s, c) => s + c.charCodeAt(0), 0) % BADGE_COLORS.length;
+  d.style.cssText = `width:80px;height:80px;border-radius:50%;background:${BADGE_COLORS[idx]};`
+    + `display:flex;align-items:center;justify-content:center;font-size:2.2em;font-weight:900;color:white;`;
+  d.textContent = word[0].toUpperCase();
+  return d;
+}
+
+async function renderEmojiClue(container, word, emoji) {
+  // Show fallback badge immediately — replaced if a better image loads
+  container.innerHTML = '';
+  container.appendChild(makeBadge(word));
+
+  const hasEmoji = emoji && emoji !== '❓';
+
+  if (hasEmoji) {
+    // Tier 1: Twemoji SVG
+    const code = emojiToTwemojiCode(emoji);
+    const img = new Image();
+    img.width = 80; img.height = 80;
+    img.style.cssText = 'width:80px;height:80px;';
+    img.onload = () => { container.innerHTML = ''; container.appendChild(img); };
+    img.onerror = () => {};  // keep badge on failure
+    img.src = `https://twemoji.maxcdn.com/v/latest/svg/${code}.svg`;
+  } else {
+    // Tier 2: Wikipedia thumbnail
+    try {
+      const resp = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(word)}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (!data.thumbnail?.source) return;
+      const img = new Image();
+      img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:12px;';
+      img.onload = () => { container.innerHTML = ''; container.appendChild(img); };
+      img.onerror = () => {};  // keep badge on failure
+      img.src = data.thumbnail.source;
+    } catch(e) {
+      // keep badge
+    }
+  }
 }
 
 // ============================================================
@@ -820,7 +874,7 @@ function loadWord() {
   currentAttempts = 0;
   updateAttemptDots();
 
-  document.getElementById('game-emoji').textContent = emoji;
+  renderEmojiClue(document.getElementById('game-emoji'), word, emoji);
 
   // Letter boxes
   const boxContainer = document.getElementById('letter-boxes');
@@ -976,7 +1030,7 @@ function checkAnswer() {
 // ---- Reveal answer after 3 fails ----
 function showRevealOverlay() {
   const { emoji, word } = gameWords[currentIdx];
-  document.getElementById('rv-emoji').textContent = emoji;
+  renderEmojiClue(document.getElementById('rv-emoji'), word, emoji);
   document.getElementById('rv-word').textContent  = applyCase(word);
   if (round < MAX_ROUNDS) {
     wordResults[word] = 'shown';          // transient — will become 'passed' or 'failed'
@@ -1029,7 +1083,7 @@ function resetBoxes() {
 // ---- Correct overlay ----
 function showCorrectOverlay() {
   const { emoji, word } = gameWords[currentIdx];
-  document.getElementById('om-emoji').textContent = emoji;
+  renderEmojiClue(document.getElementById('om-emoji'), word, emoji);
   document.getElementById('om-word').textContent  = word.toUpperCase();
   const msg = document.getElementById('overlay-msg');
   msg.classList.add('show');
