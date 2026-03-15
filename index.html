@@ -862,6 +862,7 @@ function showCorrectOverlay() {
   const msg = document.getElementById('overlay-msg');
   msg.classList.add('show');
   launchConfetti();
+  playCheer();          // short applause on each correct word
   setTimeout(() => {
     msg.classList.remove('show');
     currentIdx++;
@@ -943,61 +944,111 @@ function launchConfetti() {
 }
 
 // ============================================================
-//  APPLAUSE (Web Audio API — no external files needed)
+//  SOUND EFFECTS (Web Audio API — no external files needed)
 // ============================================================
+
+// Shared: one single clap noise burst
+function makeClap(ctx, startTime, volume) {
+  if (startTime < ctx.currentTime) return;
+  const len  = Math.floor(ctx.sampleRate * (0.055 + Math.random() * 0.075));
+  const buf  = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let s = 0; s < len; s++) {
+    data[s] = (Math.random() * 2 - 1) * Math.exp(-s / (len * 0.28));
+  }
+  const src  = ctx.createBufferSource();
+  src.buffer = buf;
+  const bpf  = ctx.createBiquadFilter();
+  bpf.type   = 'bandpass';
+  bpf.frequency.value = 900 + Math.random() * 2200;
+  bpf.Q.value = 0.4 + Math.random() * 0.9;
+  const gain = ctx.createGain();
+  gain.gain.value = Math.max(0.001, volume);
+  src.connect(bpf); bpf.connect(gain); gain.connect(ctx.destination);
+  src.start(startTime);
+}
+
+// Shared: one "woooo" cheer oscillator burst
+function makeWoo(ctx, startTime, volume) {
+  const osc  = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const base = 280 + Math.random() * 180;
+  osc.type   = 'sine';
+  osc.frequency.setValueAtTime(base,          startTime);
+  osc.frequency.linearRampToValueAtTime(base * 1.35, startTime + 0.18);
+  osc.frequency.linearRampToValueAtTime(base * 1.1,  startTime + 0.45);
+  gain.gain.setValueAtTime(0,       startTime);
+  gain.gain.linearRampToValueAtTime(volume,   startTime + 0.06);
+  gain.gain.setValueAtTime(volume,            startTime + 0.32);
+  gain.gain.linearRampToValueAtTime(0,        startTime + 0.55);
+  osc.connect(gain); gain.connect(ctx.destination);
+  osc.start(startTime); osc.stop(startTime + 0.6);
+}
+
+// Short burst of clapping for each correct word
+function playCheer() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try {
+    const ctx   = new AC();
+    const now   = ctx.currentTime;
+    const dur   = 1.8;
+    const count = 50;
+    for (let i = 0; i < count; i++) {
+      const p   = i / count;
+      const env = p < 0.15 ? p / 0.15 : p > 0.75 ? (1 - p) / 0.25 : 1;
+      const t   = p * dur + (Math.random() - 0.5) * 0.06;
+      makeClap(ctx, now + Math.max(0, t), 0.55 * env * (0.65 + Math.random() * 0.35));
+    }
+    // A couple of woo sounds
+    makeWoo(ctx, now + 0.1, 0.07);
+    makeWoo(ctx, now + 0.7, 0.06);
+    setTimeout(() => ctx.close(), (dur + 0.8) * 1000);
+  } catch (e) {}
+}
+
+// Big applause + cheering for game end
 function playApplause() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
   try {
-    const ctx = new AC();
-    const now = ctx.currentTime;
-    const total = 4.5; // seconds
-    const count = 120; // individual clap events
-
+    const ctx   = new AC();
+    const now   = ctx.currentTime;
+    const dur   = 6;
+    const count = 180;
     for (let i = 0; i < count; i++) {
-      const progress  = i / count;
-      // Envelope: quick fade-in, sustain, fade-out
-      const envelope  = progress < 0.12 ? progress / 0.12
-                      : progress > 0.78 ? (1 - progress) / 0.22
-                      : 1;
-      const baseTime  = progress * total * 0.96;
-      const jitter    = (Math.random() - 0.5) * (total / count) * 1.2;
-      const startTime = Math.max(0, baseTime + jitter);
-      const vol       = 0.55 * envelope * (0.6 + Math.random() * 0.4);
-
-      // Each clap: short noise burst with exponential decay + bandpass filter
-      const clapLen = Math.floor(ctx.sampleRate * (0.06 + Math.random() * 0.07));
-      const buf     = ctx.createBuffer(1, clapLen, ctx.sampleRate);
-      const data    = buf.getChannelData(0);
-      for (let s = 0; s < clapLen; s++) {
-        data[s] = (Math.random() * 2 - 1) * Math.exp(-s / (clapLen * 0.3));
-      }
-
-      const src    = ctx.createBufferSource();
-      src.buffer   = buf;
-
-      const bpf    = ctx.createBiquadFilter();
-      bpf.type     = 'bandpass';
-      bpf.frequency.value = 900 + Math.random() * 2200;
-      bpf.Q.value  = 0.4 + Math.random() * 0.8;
-
-      const gain   = ctx.createGain();
-      gain.gain.value = Math.max(0.001, vol);
-
-      src.connect(bpf);
-      bpf.connect(gain);
-      gain.connect(ctx.destination);
-      src.start(now + startTime);
+      const p   = i / count;
+      const env = p < 0.10 ? p / 0.10 : p > 0.78 ? (1 - p) / 0.22 : 1;
+      const t   = p * dur * 0.97 + (Math.random() - 0.5) * (dur / count) * 1.3;
+      makeClap(ctx, now + Math.max(0, t), 0.6 * env * (0.6 + Math.random() * 0.4));
     }
-
-    // Close context when done to free memory
-    setTimeout(() => ctx.close(), (total + 1) * 1000);
-  } catch (e) { /* silently skip if audio not supported */ }
+    // Waves of crowd cheering "woooo"
+    const wooTimes = [0.2, 0.9, 1.7, 2.5, 3.3, 4.1, 4.9];
+    wooTimes.forEach(t => {
+      makeWoo(ctx, now + t,        0.09 + Math.random() * 0.04);
+      makeWoo(ctx, now + t + 0.15, 0.07 + Math.random() * 0.03);
+      makeWoo(ctx, now + t + 0.3,  0.06 + Math.random() * 0.03);
+    });
+    setTimeout(() => ctx.close(), (dur + 1) * 1000);
+  } catch (e) {}
 }
 
 // ============================================================
 //  END SCREEN
 // ============================================================
+function speakResult(text) {
+  if (!('speechSynthesis' in window)) return;
+  const synth = window.speechSynthesis;
+  if (synth.speaking || synth.pending) synth.cancel();
+  const utt   = new SpeechSynthesisUtterance(text);
+  utt.lang    = 'en-US';
+  utt.rate    = 0.85;
+  utt.pitch   = 1.5;
+  utt.volume  = 1;
+  if (!isIOS) { const v = pickVoice(); if (v) utt.voice = v; }
+  synth.speak(utt);
+}
+
 function showEndScreen() {
   const total = gameWords.length;
   document.getElementById('final-score').textContent = `${score}/${total}`;
@@ -1011,8 +1062,16 @@ function showEndScreen() {
   ];
   document.getElementById('end-msg').textContent = msgs.find(([t]) => pct >= t)[1];
   showScreen('end-screen');
-  launchConfetti();
-  playApplause();
+
+  if (score === total) {
+    // All correct → big applause + cheering + voice
+    launchConfetti();
+    playApplause();
+    setTimeout(() => speakResult('Amazing! You got them all! Well done!'), 800);
+  } else {
+    // Not all correct → "Try again!" voice only
+    speakResult('Try again!');
+  }
 }
 
 function restartGame() {
