@@ -601,33 +601,33 @@ function applyCase(letter) {
   return letterCase === 'upper' ? letter.toUpperCase() : letter.toLowerCase();
 }
 
-// Pre-load a friendly female voice as soon as voices are available
-function loadVoice() {
+// Pick a friendly female voice from the available list
+function pickVoice() {
   const voices = window.speechSynthesis.getVoices();
-  if (!voices.length) return;
-  // Priority list: known friendly female English voices across OS/browser
+  if (!voices.length) return null;
   const priority = [
-    'Samantha',       // macOS
-    'Microsoft Zira', // Windows
-    'Karen',          // macOS AU
-    'Moira',          // macOS IE
-    'Tessa',          // macOS ZA
-    'Fiona',          // macOS Scotland
-    'Victoria',       // macOS
-    'Google US English', // Chrome Android
+    'Samantha',          // iOS / macOS
+    'Karen',             // iOS AU
+    'Moira',             // iOS IE
+    'Tessa',             // iOS ZA
+    'Microsoft Zira',    // Windows
+    'Google US English', // Android Chrome
+    'Fiona', 'Victoria',
   ];
   for (const name of priority) {
     const v = voices.find(v => v.name.includes(name));
-    if (v) { preferredVoice = v; return; }
+    if (v) return v;
   }
-  // Fallback: any female-labelled English voice
-  preferredVoice =
+  return (
     voices.find(v => /female/i.test(v.name) && v.lang.startsWith('en')) ||
     voices.find(v => v.lang === 'en-US') ||
-    voices.find(v => v.lang.startsWith('en'));
+    voices.find(v => v.lang.startsWith('en')) ||
+    null
+  );
 }
-window.speechSynthesis.onvoiceschanged = loadVoice;
-loadVoice(); // also try immediately (some browsers populate synchronously)
+// Keep voices updated (desktop fires this; mobile may not)
+window.speechSynthesis.onvoiceschanged = () => { preferredVoice = pickVoice(); };
+preferredVoice = pickVoice();
 
 // ============================================================
 //  SETUP SCREEN
@@ -871,18 +871,41 @@ function showCorrectOverlay() {
 }
 
 // ---- Speak ----
+let resumeTimer = null;
+
 function speakWord() {
   if (!('speechSynthesis' in window)) return;
-  const btn = document.getElementById('speak-btn');
-  window.speechSynthesis.cancel();
+  const synth = window.speechSynthesis;
+  const btn   = document.getElementById('speak-btn');
+
+  // iOS fix: synth can get stuck in paused state — always resume + cancel first
+  synth.resume();
+  synth.cancel();
+
+  // Re-pick voice fresh each tap (iOS doesn't fire onvoiceschanged reliably)
+  const voice = pickVoice();
+
   const utt = new SpeechSynthesisUtterance(gameWords[currentIdx].word);
-  utt.rate = 0.75;
-  utt.pitch = 1.6;
+  utt.rate   = 0.75;
+  utt.pitch  = 1.6;
   utt.volume = 1;
-  if (preferredVoice) utt.voice = preferredVoice;
+  if (voice) utt.voice = voice;
+
   btn.classList.add('speaking');
-  utt.onend = () => btn.classList.remove('speaking');
-  window.speechSynthesis.speak(utt);
+
+  // iOS fix: resume every 250ms so the browser doesn't silently pause long words
+  clearInterval(resumeTimer);
+  resumeTimer = setInterval(() => {
+    if (synth.paused) synth.resume();
+  }, 250);
+
+  utt.onend = utt.onerror = () => {
+    clearInterval(resumeTimer);
+    btn.classList.remove('speaking');
+  };
+
+  // Small delay so cancel() fully clears before speak() on iOS
+  setTimeout(() => synth.speak(utt), 100);
 }
 
 // ============================================================
