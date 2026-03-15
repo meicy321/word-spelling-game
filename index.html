@@ -692,7 +692,14 @@ function makeBadge(word, size = 80) {
   return d;
 }
 
+const _emojiGen = new WeakMap();
+
 async function renderEmojiClue(container, word, emoji, size = 80) {
+  // Increment generation counter so stale async callbacks can detect they're outdated
+  const gen = (_emojiGen.get(container) || 0) + 1;
+  _emojiGen.set(container, gen);
+  const isCurrent = () => _emojiGen.get(container) === gen;
+
   // Show fallback badge immediately — replaced if a better image loads
   container.innerHTML = '';
   container.appendChild(makeBadge(word, size));
@@ -704,20 +711,22 @@ async function renderEmojiClue(container, word, emoji, size = 80) {
     const code = emojiToTwemojiCode(emoji);
     const img = new Image();
     img.style.cssText = `width:${size}px;height:${size}px;`;
-    img.onload = () => { container.innerHTML = ''; container.appendChild(img); };
+    img.onload = () => { if (!isCurrent()) return; container.innerHTML = ''; container.appendChild(img); };
     img.onerror = () => {};  // keep badge on failure
     img.src = `https://twemoji.maxcdn.com/v/latest/svg/${code}.svg`;
   } else {
     // Tier 2: Wikipedia thumbnail
     try {
       const resp = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(word)}`);
+      if (!isCurrent()) return;
       if (!resp.ok) return;
       const data = await resp.json();
+      if (!isCurrent()) return;
       if (!data.thumbnail?.source) return;
       const img = new Image();
       const r = Math.round(size / 6) + 'px';
       img.style.cssText = `width:${size}px;height:${size}px;object-fit:cover;border-radius:${r};`;
-      img.onload = () => { container.innerHTML = ''; container.appendChild(img); };
+      img.onload = () => { if (!isCurrent()) return; container.innerHTML = ''; container.appendChild(img); };
       img.onerror = () => {};  // keep badge on failure
       img.src = data.thumbnail.source;
     } catch(e) {
@@ -805,13 +814,13 @@ wordInput.addEventListener('input', () => {
     return;
   }
   const emoji = getEmoji(v);
+  clearTimeout(_previewDebounce);
   if (emoji !== '❓') {
     renderEmojiClue(emojiPreview, v, emoji, 44);
   } else {
     // Show badge immediately; try Wikipedia after typing pause
     emojiPreview.innerHTML = '';
     emojiPreview.appendChild(makeBadge(v, 36));
-    clearTimeout(_previewDebounce);
     _previewDebounce = setTimeout(() => renderEmojiClue(emojiPreview, v, emoji, 44), 600);
   }
 });
