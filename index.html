@@ -388,6 +388,23 @@ h1 {
 }
 .restart-btn:hover { transform: scale(1.02); }
 
+.newgame-btn {
+  width: 100%;
+  padding: 17px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  border-radius: 18px;
+  font-size: 1.4em;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.1s;
+  box-shadow: 0 6px 20px rgba(102,126,234,0.4);
+  font-weight: 700;
+  margin-top: 12px;
+}
+.newgame-btn:hover { transform: scale(1.02); }
+
 /* ===== RESPONSIVE / MOBILE ===== */
 
 /* Prevent iOS zoom on input focus */
@@ -431,7 +448,7 @@ h1 {
   /* End screen */
   .score-ring { width: 130px; height: 130px; }
   .score-ring .snum { font-size: 2.6em; }
-  .restart-btn { font-size: 1.2em; padding: 15px; }
+  .restart-btn, .newgame-btn { font-size: 1.2em; padding: 15px; }
 }
 
 /* Very small phones (iPhone SE etc.) */
@@ -491,7 +508,8 @@ h1 {
       <span class="slbl">correct!</span>
     </div>
     <p id="end-msg"></p>
-    <button class="restart-btn" onclick="restartGame()">🔄 Play Again!</button>
+    <button class="restart-btn" onclick="tryAgain()">🔄 Try Again</button>
+    <button class="newgame-btn" onclick="startNewGame()">✏️ Start New Game</button>
   </div>
 </div>
 
@@ -1064,18 +1082,26 @@ function showEndScreen() {
   showScreen('end-screen');
 
   if (score === total) {
-    // All correct → big applause + cheering + voice
+    // Perfect score → celebration then show buttons
     launchConfetti();
     playApplause();
     setTimeout(() => speakResult('Amazing! You got them all! Well done!'), 800);
-  } else {
-    // Not all correct → "Try again!" voice only
-    speakResult('Try again!');
   }
+  // No celebration if not perfect — buttons are always visible
 }
 
-function restartGame() {
-  wordList  = [];
+// Same word list, restart game
+function tryAgain() {
+  currentIdx = 0;
+  score = 0;
+  gameWords = [...wordList].sort(() => Math.random() - 0.5);
+  showScreen('game-screen');
+  loadWord();
+}
+
+// Go back to setup to enter new words
+function startNewGame() {
+  wordList = [];
   renderWordList();
   showScreen('setup-screen');
 }
