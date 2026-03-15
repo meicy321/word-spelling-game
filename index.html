@@ -726,8 +726,8 @@ function loadWord() {
     boxes.push({ el, letter: null, tileIdx: null });
   }
 
-  // Build 12 tiles: word letters + random distractors
-  const TOTAL_TILES = 12;
+  // Build tiles: 8 total if word < 5 letters, 10 total if >= 5 letters
+  const TOTAL_TILES = word.length < 5 ? 8 : 10;
   const wordLetters = word.split('').map((letter, i) => ({ letter, origIdx: i, used: false, el: null, isReal: true }));
   const alphabet = 'abcdefghijklmnopqrstuvwxyz';
   const distractors = [];
