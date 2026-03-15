@@ -138,6 +138,33 @@ h1 {
 }
 .word-item .wi-rm:hover { background: #e53935; }
 
+.case-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.case-label { color: #888; font-size: 0.95em; }
+.case-btn {
+  padding: 10px 26px;
+  border: 3px solid #ddd;
+  border-radius: 50px;
+  font-size: 1.2em;
+  font-family: inherit;
+  font-weight: 700;
+  background: white;
+  color: #aaa;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.case-btn.active {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border-color: #667eea;
+  color: white;
+  box-shadow: 0 4px 12px rgba(102,126,234,0.4);
+}
+
 .start-btn {
   width: 100%;
   padding: 17px;
@@ -376,6 +403,13 @@ h1 {
     </div>
     <div class="counter" id="counter">0 words added — add at least 1 to start</div>
     <div class="word-list" id="word-list"></div>
+
+    <div class="case-toggle-row">
+      <span class="case-label">Letter style:</span>
+      <button class="case-btn active" id="btn-upper" onclick="setCase('upper')">ABC</button>
+      <button class="case-btn"        id="btn-lower" onclick="setCase('lower')">abc</button>
+    </div>
+
     <button class="start-btn" id="start-btn" disabled onclick="startGame()">🎮 Start Game!</button>
   </div>
 </div>
@@ -502,6 +536,17 @@ let boxes = [];   // [{el, letter, tileIdx}]
 let tiles = [];   // [{letter, el, used}]
 let selectedTileIdx = null;
 let preferredVoice = null;
+let letterCase = 'upper'; // 'upper' | 'lower'
+
+function setCase(mode) {
+  letterCase = mode;
+  document.getElementById('btn-upper').classList.toggle('active', mode === 'upper');
+  document.getElementById('btn-lower').classList.toggle('active', mode === 'lower');
+}
+
+function applyCase(letter) {
+  return letterCase === 'upper' ? letter.toUpperCase() : letter.toLowerCase();
+}
 
 // Pre-load a friendly female voice as soon as voices are available
 function loadVoice() {
@@ -648,7 +693,7 @@ function renderTiles() {
   tiles.forEach((t, i) => {
     const el = document.createElement('div');
     el.className = 'tile' + (t.used ? ' used' : '');
-    el.textContent = t.letter.toUpperCase();
+    el.textContent = applyCase(t.letter);
     el.dataset.idx = i;
     el.draggable = true;
     el.addEventListener('click',     () => handleTileClick(i));
@@ -716,7 +761,7 @@ function placeTileInBox(ti, bi) {
 
   boxes[bi].letter  = t.letter;
   boxes[bi].tileIdx = ti;
-  boxes[bi].el.textContent = t.letter.toUpperCase();
+  boxes[bi].el.textContent = applyCase(t.letter);
   boxes[bi].el.classList.add('filled');
 
   if (boxes.every(b => b.letter !== null)) checkAnswer();
