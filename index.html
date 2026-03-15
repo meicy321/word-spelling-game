@@ -341,6 +341,34 @@ h1 {
 .overlay-msg h2 { font-size: 2em; color: #4caf50; margin-bottom: 6px; }
 .overlay-msg p  { font-size: 1.3em; color: #555; }
 
+.reveal-overlay h2 { color: #ff6b6b !important; }
+
+.round-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #fda085, #f5576c);
+  color: white;
+  font-size: 0.82em;
+  font-weight: 800;
+  padding: 3px 12px;
+  border-radius: 50px;
+  margin-bottom: 6px;
+}
+
+.attempt-dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.attempt-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: #eee;
+  border: 2px solid #ddd;
+  transition: background 0.2s;
+}
+.attempt-dot.used { background: #ff6b6b; border-color: #e53935; }
+
 /* ===== CONFETTI ===== */
 .celebration { position: fixed; inset: 0; pointer-events: none; z-index: 150; overflow: hidden; }
 .confetti-piece {
@@ -491,6 +519,12 @@ h1 {
       <div class="progress-fill" id="progress-fill" style="width:0%"></div>
     </div>
     <div class="progress-label" id="progress-label">Word 1 / ?</div>
+    <div style="text-align:center" id="round-badge-wrap"></div>
+    <div class="attempt-dots" id="attempt-dots">
+      <div class="attempt-dot" id="dot-0"></div>
+      <div class="attempt-dot" id="dot-1"></div>
+      <div class="attempt-dot" id="dot-2"></div>
+    </div>
     <div class="emoji-clue" id="game-emoji">🐶</div>
     <button class="speak-btn" id="speak-btn" onclick="speakWord()">🔊 Hear the Word</button>
     <div class="letter-boxes" id="letter-boxes"></div>
@@ -521,6 +555,13 @@ h1 {
   <span class="om-emoji" id="om-emoji">⭐</span>
   <h2>Correct! 🎉</h2>
   <p id="om-word"></p>
+</div>
+
+<!-- Reveal answer overlay (shown after 3 failed attempts) -->
+<div class="overlay-msg reveal-overlay" id="reveal-msg">
+  <span class="om-emoji" id="rv-emoji">😅</span>
+  <h2 style="color:#ff6b6b;">The answer is...</h2>
+  <p id="rv-word" style="font-size:2em; font-weight:900; color:#333; letter-spacing:4px;"></p>
 </div>
 
 <script>
@@ -599,9 +640,14 @@ function getEmoji(word) {
 //  STATE
 // ============================================================
 let wordList  = [];         // [{word, emoji}]
-let gameWords = [];         // shuffled copy
+let gameWords = [];         // current round's word queue
 let currentIdx = 0;
 let score = 0;
+let round = 1;
+const MAX_ROUNDS   = 2;
+const MAX_ATTEMPTS = 3;
+let currentAttempts = 0;   // wrong attempts for current word
+let wrongWordsThisRound = []; // words failed this round → replayed next round
 
 let boxes = [];   // [{el, letter, tileIdx}]
 let tiles = [];   // [{letter, el, used}]
@@ -710,6 +756,9 @@ function startGame() {
   gameWords = [...wordList].sort(() => Math.random() - 0.5);
   currentIdx = 0;
   score = 0;
+  round = 1;
+  currentAttempts = 0;
+  wrongWordsThisRound = [];
   showScreen('game-screen');
   loadWord();
 }
@@ -726,6 +775,17 @@ function loadWord() {
   const current = currentIdx + 1;
   document.getElementById('progress-label').textContent = `Word ${current} / ${total}`;
   document.getElementById('progress-fill').style.width  = `${((current - 1) / total) * 100}%`;
+
+  // Round badge (only show on round 2+)
+  const badgeWrap = document.getElementById('round-badge-wrap');
+  badgeWrap.innerHTML = round > 1
+    ? `<span class="round-badge">Round ${round} / ${MAX_ROUNDS}</span>`
+    : '';
+
+  // Reset attempt dots
+  currentAttempts = 0;
+  updateAttemptDots();
+
   document.getElementById('game-emoji').textContent = emoji;
 
   // Letter boxes
@@ -844,6 +904,14 @@ function deselectTile(clearIdx = true) {
   if (clearIdx) selectedTileIdx = null;
 }
 
+// ---- Attempt dots ----
+function updateAttemptDots() {
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    document.getElementById(`dot-${i}`)
+      .classList.toggle('used', i < currentAttempts);
+  }
+}
+
 // ---- Check ----
 function checkAnswer() {
   const answer = boxes.map(b => b.letter).join('');
@@ -855,7 +923,56 @@ function checkAnswer() {
     showCorrectOverlay();
   } else {
     boxes.forEach(b => b.el.classList.add('wrong'));
-    setTimeout(resetBoxes, 650);
+    currentAttempts++;
+    updateAttemptDots();
+
+    if (currentAttempts >= MAX_ATTEMPTS) {
+      // 3 wrong attempts — reveal answer then move on
+      setTimeout(() => {
+        resetBoxes();
+        showRevealOverlay();
+      }, 650);
+    } else {
+      setTimeout(resetBoxes, 650);
+    }
+  }
+}
+
+// ---- Reveal answer after 3 fails ----
+function showRevealOverlay() {
+  const { emoji, word } = gameWords[currentIdx];
+  document.getElementById('rv-emoji').textContent = emoji;
+  document.getElementById('rv-word').textContent  = word.toUpperCase();
+  // Mark word for retry next round (only if we haven't hit max rounds)
+  if (round < MAX_ROUNDS) {
+    wrongWordsThisRound.push(gameWords[currentIdx]);
+  }
+  const msg = document.getElementById('reveal-msg');
+  msg.classList.add('show');
+  setTimeout(() => {
+    msg.classList.remove('show');
+    advanceWord();
+  }, 2500);
+}
+
+// ---- Advance to next word or next round or end ----
+function advanceWord() {
+  currentIdx++;
+  if (currentIdx < gameWords.length) {
+    loadWord();
+    return;
+  }
+  // End of current round
+  if (round < MAX_ROUNDS && wrongWordsThisRound.length > 0) {
+    // Start next round with only the words they got wrong
+    round++;
+    gameWords = [...wrongWordsThisRound].sort(() => Math.random() - 0.5);
+    wrongWordsThisRound = [];
+    currentIdx = 0;
+    currentAttempts = 0;
+    loadWord();
+  } else {
+    showEndScreen();
   }
 }
 
@@ -883,9 +1000,7 @@ function showCorrectOverlay() {
   playCheer();          // short applause on each correct word
   setTimeout(() => {
     msg.classList.remove('show');
-    currentIdx++;
-    if (currentIdx >= gameWords.length) showEndScreen();
-    else loadWord();
+    advanceWord();
   }, 2000);
 }
 
@@ -1092,9 +1207,12 @@ function showEndScreen() {
 
 // Same word list, restart game
 function tryAgain() {
+  gameWords = [...wordList].sort(() => Math.random() - 0.5);
   currentIdx = 0;
   score = 0;
-  gameWords = [...wordList].sort(() => Math.random() - 0.5);
+  round = 1;
+  currentAttempts = 0;
+  wrongWordsThisRound = [];
   showScreen('game-screen');
   loadWord();
 }
