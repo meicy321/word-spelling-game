@@ -599,13 +599,16 @@ function loadWord() {
     boxes.push({ el, letter: null, tileIdx: null });
   }
 
-  // Scramble
-  tiles = word.split('').map((letter, i) => ({ letter, origIdx: i, used: false, el: null }));
-  shuffle(tiles);
-  // If accidentally sorted, swap first two
-  if (tiles.length > 1 && tiles.map(t => t.letter).join('') === word) {
-    [tiles[0], tiles[1]] = [tiles[1], tiles[0]];
+  // Build 12 tiles: word letters + random distractors
+  const TOTAL_TILES = 12;
+  const wordLetters = word.split('').map((letter, i) => ({ letter, origIdx: i, used: false, el: null, isReal: true }));
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+  const distractors = [];
+  while (wordLetters.length + distractors.length < TOTAL_TILES) {
+    distractors.push({ letter: alphabet[Math.floor(Math.random() * 26)], origIdx: -1, used: false, el: null, isReal: false });
   }
+  tiles = [...wordLetters, ...distractors];
+  shuffle(tiles);
 
   renderTiles();
 }
