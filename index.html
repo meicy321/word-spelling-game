@@ -1293,35 +1293,52 @@ let dragGhost = null;
 let draggingTileIdx = null;
 
 function initTouchDrag(el, tileIdx) {
-  el.addEventListener('pointerdown', e => {
-    if (e.pointerType === 'mouse') return; // mouse uses native drag
-    e.preventDefault();
-    draggingTileIdx = tileIdx;
+  let startX, startY, ghostCreated = false;
 
-    // Create a floating ghost clone
-    dragGhost = el.cloneNode(true);
-    dragGhost.style.cssText = `
-      position:fixed; z-index:999; pointer-events:none;
-      width:${el.offsetWidth}px; height:${el.offsetHeight}px;
-      opacity:0.85; transform:scale(1.15);
-      transition:none; border-radius:14px;
-    `;
-    moveGhost(e);
-    document.body.appendChild(dragGhost);
-    el.classList.add('dragging');
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse') return;
+    e.preventDefault();
+    startX = e.clientX;
+    startY = e.clientY;
+    ghostCreated = false;
+    draggingTileIdx = tileIdx;
   });
 
   el.addEventListener('pointermove', e => {
     if (draggingTileIdx === null || e.pointerType === 'mouse') return;
     e.preventDefault();
-    moveGhost(e);
+    const dx = Math.abs(e.clientX - startX);
+    const dy = Math.abs(e.clientY - startY);
+    if (!ghostCreated && (dx > 8 || dy > 8)) {
+      ghostCreated = true;
+      dragGhost = el.cloneNode(true);
+      dragGhost.style.cssText = `
+        position:fixed; z-index:999; pointer-events:none;
+        width:${el.offsetWidth}px; height:${el.offsetHeight}px;
+        opacity:0.85; transform:scale(1.15);
+        transition:none; border-radius:14px;
+      `;
+      document.body.appendChild(dragGhost);
+      el.classList.add('dragging');
+    }
+    if (ghostCreated) moveGhost(e);
   });
 
   el.addEventListener('pointerup', e => {
     if (draggingTileIdx === null || e.pointerType === 'mouse') return;
     e.preventDefault();
-    cleanupGhost(e);
-    // Find which box is under the finger
+    const idx = draggingTileIdx;
+    draggingTileIdx = null;
+
+    if (!ghostCreated) {
+      // Tap — treat same as click (auto-places in first empty box)
+      handleTileClick(idx);
+      return;
+    }
+
+    // Drag — drop onto box under finger
+    cleanupGhost();
+    el.classList.remove('dragging');
     const target = document.elementFromPoint(e.clientX, e.clientY);
     const boxEl = target?.closest('.lbox');
     if (boxEl) {
@@ -1331,17 +1348,17 @@ function initTouchDrag(el, tileIdx) {
           const old = boxes[boxIdx].tileIdx;
           if (old !== null) { tiles[old].used = false; tiles[old].el?.classList.remove('used'); }
         }
-        placeTileInBox(draggingTileIdx, boxIdx);
+        placeTileInBox(idx, boxIdx);
       }
     }
-    tiles[draggingTileIdx]?.el?.classList.remove('dragging');
-    draggingTileIdx = null;
+    ghostCreated = false;
   });
 
   el.addEventListener('pointercancel', () => {
-    cleanupGhost(null);
+    cleanupGhost();
     if (draggingTileIdx !== null) tiles[draggingTileIdx]?.el?.classList.remove('dragging');
     draggingTileIdx = null;
+    ghostCreated = false;
   });
 }
 
