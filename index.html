@@ -872,40 +872,50 @@ function showCorrectOverlay() {
 
 // ---- Speak ----
 let resumeTimer = null;
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 
 function speakWord() {
   if (!('speechSynthesis' in window)) return;
   const synth = window.speechSynthesis;
   const btn   = document.getElementById('speak-btn');
 
-  // iOS fix: synth can get stuck in paused state — always resume + cancel first
-  synth.resume();
-  synth.cancel();
-
-  // Re-pick voice fresh each tap (iOS doesn't fire onvoiceschanged reliably)
-  const voice = pickVoice();
+  // Stop anything playing
+  if (synth.speaking || synth.pending) synth.cancel();
 
   const utt = new SpeechSynthesisUtterance(gameWords[currentIdx].word);
   utt.rate   = 0.75;
   utt.pitch  = 1.6;
   utt.volume = 1;
-  if (voice) utt.voice = voice;
+  utt.lang   = 'en-US';
+
+  // On iOS: do NOT set .voice — letting the browser pick its own default
+  // is the only reliable way to get speech to work on iOS Safari.
+  // On other platforms: pick a friendly female voice.
+  if (!isIOS) {
+    const voice = pickVoice();
+    if (voice) utt.voice = voice;
+  }
 
   btn.classList.add('speaking');
 
-  // iOS fix: resume every 250ms so the browser doesn't silently pause long words
+  // Keep synth alive — iOS pauses it silently on long words
   clearInterval(resumeTimer);
   resumeTimer = setInterval(() => {
     if (synth.paused) synth.resume();
-  }, 250);
+    if (!synth.speaking && !synth.pending) {
+      clearInterval(resumeTimer);
+      btn.classList.remove('speaking');
+    }
+  }, 200);
 
   utt.onend = utt.onerror = () => {
     clearInterval(resumeTimer);
     btn.classList.remove('speaking');
   };
 
-  // Small delay so cancel() fully clears before speak() on iOS
-  setTimeout(() => synth.speak(utt), 100);
+  // MUST call speak() synchronously here — any setTimeout breaks the
+  // iOS user-gesture requirement and silently prevents speech.
+  synth.speak(utt);
 }
 
 // ============================================================
@@ -933,6 +943,59 @@ function launchConfetti() {
 }
 
 // ============================================================
+//  APPLAUSE (Web Audio API — no external files needed)
+// ============================================================
+function playApplause() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try {
+    const ctx = new AC();
+    const now = ctx.currentTime;
+    const total = 4.5; // seconds
+    const count = 120; // individual clap events
+
+    for (let i = 0; i < count; i++) {
+      const progress  = i / count;
+      // Envelope: quick fade-in, sustain, fade-out
+      const envelope  = progress < 0.12 ? progress / 0.12
+                      : progress > 0.78 ? (1 - progress) / 0.22
+                      : 1;
+      const baseTime  = progress * total * 0.96;
+      const jitter    = (Math.random() - 0.5) * (total / count) * 1.2;
+      const startTime = Math.max(0, baseTime + jitter);
+      const vol       = 0.55 * envelope * (0.6 + Math.random() * 0.4);
+
+      // Each clap: short noise burst with exponential decay + bandpass filter
+      const clapLen = Math.floor(ctx.sampleRate * (0.06 + Math.random() * 0.07));
+      const buf     = ctx.createBuffer(1, clapLen, ctx.sampleRate);
+      const data    = buf.getChannelData(0);
+      for (let s = 0; s < clapLen; s++) {
+        data[s] = (Math.random() * 2 - 1) * Math.exp(-s / (clapLen * 0.3));
+      }
+
+      const src    = ctx.createBufferSource();
+      src.buffer   = buf;
+
+      const bpf    = ctx.createBiquadFilter();
+      bpf.type     = 'bandpass';
+      bpf.frequency.value = 900 + Math.random() * 2200;
+      bpf.Q.value  = 0.4 + Math.random() * 0.8;
+
+      const gain   = ctx.createGain();
+      gain.gain.value = Math.max(0.001, vol);
+
+      src.connect(bpf);
+      bpf.connect(gain);
+      gain.connect(ctx.destination);
+      src.start(now + startTime);
+    }
+
+    // Close context when done to free memory
+    setTimeout(() => ctx.close(), (total + 1) * 1000);
+  } catch (e) { /* silently skip if audio not supported */ }
+}
+
+// ============================================================
 //  END SCREEN
 // ============================================================
 function showEndScreen() {
@@ -949,6 +1012,7 @@ function showEndScreen() {
   document.getElementById('end-msg').textContent = msgs.find(([t]) => pct >= t)[1];
   showScreen('end-screen');
   launchConfetti();
+  playApplause();
 }
 
 function restartGame() {
