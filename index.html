@@ -142,27 +142,34 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  background: #f4f6ff;
+  border-radius: 16px;
+  border: 2px dashed #c5cae9;
 }
-.case-label { color: #888; font-size: 0.95em; }
+.case-label { color: #666; font-size: 1em; font-weight: 600; }
 .case-btn {
-  padding: 10px 26px;
+  padding: 12px 30px;
   border: 3px solid #ddd;
   border-radius: 50px;
-  font-size: 1.2em;
+  font-size: 1.3em;
   font-family: inherit;
-  font-weight: 700;
+  font-weight: 800;
   background: white;
-  color: #aaa;
+  color: #bbb;
   cursor: pointer;
   transition: all 0.2s;
+  letter-spacing: 2px;
 }
+.case-btn:hover { border-color: #999; color: #666; transform: scale(1.05); }
 .case-btn.active {
   background: linear-gradient(135deg, #667eea, #764ba2);
   border-color: #667eea;
   color: white;
-  box-shadow: 0 4px 12px rgba(102,126,234,0.4);
+  box-shadow: 0 4px 14px rgba(102,126,234,0.45);
+  transform: scale(1.05);
 }
 
 .start-btn {
@@ -402,14 +409,14 @@ h1 {
       <button class="add-btn" id="add-btn" onclick="addWord()">➕</button>
     </div>
     <div class="counter" id="counter">0 words added — add at least 1 to start</div>
-    <div class="word-list" id="word-list"></div>
 
     <div class="case-toggle-row">
-      <span class="case-label">Letter style:</span>
+      <span class="case-label">✏️ Letter style:</span>
       <button class="case-btn active" id="btn-upper" onclick="setCase('upper')">ABC</button>
       <button class="case-btn"        id="btn-lower" onclick="setCase('lower')">abc</button>
     </div>
 
+    <div class="word-list" id="word-list"></div>
     <button class="start-btn" id="start-btn" disabled onclick="startGame()">🎮 Start Game!</button>
   </div>
 </div>
