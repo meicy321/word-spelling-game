@@ -71,11 +71,11 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.9em;
   background: #f4f4f4;
   border-radius: 14px;
   border: 3px solid #e0e0e0;
   transition: transform 0.2s;
+  overflow: hidden;
 }
 .emoji-preview.pop { animation: pop 0.2s ease; }
 @keyframes pop { 0%,100%{transform:scale(1)} 50%{transform:scale(1.3)} }
@@ -125,7 +125,7 @@ h1 {
   from { transform: translateX(-18px); opacity: 0; }
   to   { transform: translateX(0);     opacity: 1; }
 }
-.word-item .wi-emoji { font-size: 1.5em; }
+.word-item .wi-emoji { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .word-item .wi-word  { flex: 1; font-size: 1.1em; font-weight: 700; color: #333; text-transform: uppercase; letter-spacing: 1px; }
 .word-item .wi-rm {
   background: #ff6b6b;
@@ -485,7 +485,7 @@ h1 {
 
   /* Setup screen */
   .input-row { gap: 6px; }
-  .emoji-preview { min-width: 44px; height: 44px; font-size: 1.5em; }
+  .emoji-preview { min-width: 44px; height: 44px; }
   .add-btn { padding: 10px 14px; font-size: 1.1em; }
   .case-toggle-row { padding: 10px 12px; gap: 8px; flex-wrap: wrap; }
   .case-btn { padding: 10px 22px; font-size: 1.1em; }
@@ -610,6 +610,10 @@ const EMOJI = {
   chicken:'🐔', chick:'🐥', flamingo:'🦩', peacock:'🦚', unicorn:'🦄',
   dragon:'🐲', dinosaur:'🦕', mouse:'🐭', hamster:'🐹', squirrel:'🐿️',
   hedgehog:'🦔', bat:'🦇', snail:'🐌', worm:'🪱', ladybug:'🐞',
+  spider:'🕷️', fly:'🪰', mosquito:'🦟', scorpion:'🦂', beetle:'🪲',
+  caterpillar:'🐛', swan:'🦢', seal:'🦭', otter:'🦦', sloth:'🦥',
+  shrimp:'🦐', jellyfish:'🪼', feather:'🪶', mammoth:'🦣', bison:'🦬',
+  cockroach:'🪳', dodo:'🦤', skunk:'🦨', moose:'🫎', donkey:'🫏',
   // Fruits
   apple:'🍎', banana:'🍌', cherry:'🍒', grape:'🍇', mango:'🥭', orange:'🍊',
   peach:'🍑', pear:'🍐', lemon:'🍋', strawberry:'🍓', watermelon:'🍉',
@@ -678,19 +682,20 @@ function emojiToTwemojiCode(emoji) {
 
 const BADGE_COLORS = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#ff922b','#cc5de8','#20c997','#f06595'];
 
-function makeBadge(word) {
+function makeBadge(word, size = 80) {
   const d = document.createElement('div');
   const idx = [...word].reduce((s, c) => s + c.charCodeAt(0), 0) % BADGE_COLORS.length;
-  d.style.cssText = `width:80px;height:80px;border-radius:50%;background:${BADGE_COLORS[idx]};`
-    + `display:flex;align-items:center;justify-content:center;font-size:2.2em;font-weight:900;color:white;`;
+  const fs = Math.round(size * 0.35) + 'px';
+  d.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:${BADGE_COLORS[idx]};`
+    + `display:flex;align-items:center;justify-content:center;font-size:${fs};font-weight:900;color:white;flex-shrink:0;`;
   d.textContent = word[0].toUpperCase();
   return d;
 }
 
-async function renderEmojiClue(container, word, emoji) {
+async function renderEmojiClue(container, word, emoji, size = 80) {
   // Show fallback badge immediately — replaced if a better image loads
   container.innerHTML = '';
-  container.appendChild(makeBadge(word));
+  container.appendChild(makeBadge(word, size));
 
   const hasEmoji = emoji && emoji !== '❓';
 
@@ -698,8 +703,7 @@ async function renderEmojiClue(container, word, emoji) {
     // Tier 1: Twemoji SVG
     const code = emojiToTwemojiCode(emoji);
     const img = new Image();
-    img.width = 80; img.height = 80;
-    img.style.cssText = 'width:80px;height:80px;';
+    img.style.cssText = `width:${size}px;height:${size}px;`;
     img.onload = () => { container.innerHTML = ''; container.appendChild(img); };
     img.onerror = () => {};  // keep badge on failure
     img.src = `https://twemoji.maxcdn.com/v/latest/svg/${code}.svg`;
@@ -711,7 +715,8 @@ async function renderEmojiClue(container, word, emoji) {
       const data = await resp.json();
       if (!data.thumbnail?.source) return;
       const img = new Image();
-      img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:12px;';
+      const r = Math.round(size / 6) + 'px';
+      img.style.cssText = `width:${size}px;height:${size}px;object-fit:cover;border-radius:${r};`;
       img.onload = () => { container.innerHTML = ''; container.appendChild(img); };
       img.onerror = () => {};  // keep badge on failure
       img.src = data.thumbnail.source;
@@ -786,18 +791,38 @@ preferredVoice = pickVoice();
 const wordInput   = document.getElementById('word-input');
 const emojiPreview = document.getElementById('emoji-preview');
 
+let _previewWord = '';
+let _previewDebounce;
 wordInput.addEventListener('input', () => {
-  const v = wordInput.value.trim();
-  const e = v ? getEmoji(v) : '🔤';
-  if (emojiPreview.textContent !== e) {
-    emojiPreview.textContent = e;
-    emojiPreview.classList.remove('pop');
-    void emojiPreview.offsetWidth;
-    emojiPreview.classList.add('pop');
+  const v = wordInput.value.trim().toLowerCase().replace(/[^a-z]/g, '');
+  if (v === _previewWord) return;
+  _previewWord = v;
+  emojiPreview.classList.remove('pop');
+  void emojiPreview.offsetWidth;
+  emojiPreview.classList.add('pop');
+  if (!v) {
+    emojiPreview.innerHTML = '<span style="font-size:1.6em">🔤</span>';
+    return;
+  }
+  const emoji = getEmoji(v);
+  if (emoji !== '❓') {
+    renderEmojiClue(emojiPreview, v, emoji, 44);
+  } else {
+    // Show badge immediately; try Wikipedia after typing pause
+    emojiPreview.innerHTML = '';
+    emojiPreview.appendChild(makeBadge(v, 36));
+    clearTimeout(_previewDebounce);
+    _previewDebounce = setTimeout(() => renderEmojiClue(emojiPreview, v, emoji, 44), 600);
   }
 });
 
 wordInput.addEventListener('keydown', e => { if (e.key === 'Enter') addWord(); });
+
+// Mobile fix: fire addWord on touchend (before iOS keyboard-dismiss layout shift swallows the click)
+document.getElementById('add-btn').addEventListener('touchend', e => {
+  e.preventDefault(); // prevents the duplicate click event
+  addWord();
+}, { passive: false });
 
 function addWord() {
   const v = wordInput.value.trim().toLowerCase().replace(/[^a-z]/g, '');
@@ -806,8 +831,9 @@ function addWord() {
   wordList.push({ word: v, emoji });
   renderWordList();
   wordInput.value = '';
-  emojiPreview.textContent = '🔤';
-  wordInput.focus();
+  _previewWord = '';
+  emojiPreview.innerHTML = '<span style="font-size:1.6em">🔤</span>';
+  if (document.activeElement === wordInput) wordInput.focus(); // only refocus on desktop
 }
 
 function removeWord(i) {
@@ -830,12 +856,20 @@ function renderWordList() {
   wordList.forEach((w, i) => {
     const item = document.createElement('div');
     item.className = 'word-item';
-    item.innerHTML = `
-      <span class="wi-emoji">${w.emoji}</span>
-      <span class="wi-word">${w.word}</span>
-      <button class="wi-rm" onclick="removeWord(${i})">✕</button>
-    `;
+    const emojiSpan = document.createElement('span');
+    emojiSpan.className = 'wi-emoji';
+    const wordSpan = document.createElement('span');
+    wordSpan.className = 'wi-word';
+    wordSpan.textContent = w.word;
+    const rmBtn = document.createElement('button');
+    rmBtn.className = 'wi-rm';
+    rmBtn.textContent = '✕';
+    rmBtn.onclick = () => removeWord(i);
+    item.appendChild(emojiSpan);
+    item.appendChild(wordSpan);
+    item.appendChild(rmBtn);
     listEl.appendChild(item);
+    renderEmojiClue(emojiSpan, w.word, w.emoji, 36);
   });
 }
 
